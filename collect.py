@@ -69,13 +69,23 @@ def lineage_of(rel: Path) -> list[tuple[str, str, str]]:
             for i in range(0, len(parts), 3)]
 
 
-def read_perf(path: Path) -> dict[str, float]:
+def as_float(text: str) -> float | None:
+    """Snakemake writes 'NA' for a counter it could not measure (io_in/io_out
+    on filesystems it can't poll, rss on a job that ended too fast). That is a
+    missing reading, not a zero, so it becomes null."""
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def read_perf(path: Path) -> dict[str, float | None]:
     """Snakemake's two-line benchmark TSV: header, then one row of numbers.
 
     `h:m:s` is dropped -- it is `s` in human form, and the only non-number.
     """
     head, row = path.read_text().splitlines()[:2]
-    return {f"perf_{k}": float(v)
+    return {f"perf_{k}": as_float(v)
             for k, v in zip(head.split("\t"), row.split("\t")) if k != "h:m:s"}
 
 

@@ -14,7 +14,8 @@ from pathlib import Path
 
 from collect import collect, lineage_of, read_modules
 
-PERF = "s\th:m:s\tmax_rss\tcpu_time\n1.5\t0:00:01\t20.41\t7.14\n"
+# io_in is 'NA': snakemake emits that for a counter it could not measure
+PERF = "s\th:m:s\tmax_rss\tio_in\tcpu_time\n1.5\t0:00:01\t20.41\tNA\t7.14\n"
 
 CONFIG = """
 stages:
@@ -132,6 +133,9 @@ def test_collect(tmp_path):
     # performance is prefixed, h:m:s dropped, values numeric
     assert rows["PCA"]["perf_max_rss"] == 20.41
     assert not [c for c in df.columns if c.endswith("h:m:s")]
+    # an unmeasured counter is null, not an error and not a zero
+    assert "perf_io_in" in df.columns
+    assert rows["PCA"]["perf_io_in"] is None
 
     # lineage: the metric row carries the PCA solver that produced it
     assert rows["EMBED-M"]["PCA_method"] == "pc-scanpy"
