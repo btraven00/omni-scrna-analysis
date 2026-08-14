@@ -169,7 +169,10 @@ def order_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def collect(root: Path, processes: int | None = None) -> pl.DataFrame:
-    manifest = json.loads((root / ".metadata" / "manifest.json").read_text())
+    meta = root / ".metadata" / "manifest.json"
+    if not meta.exists():
+        raise SystemExit(f"{meta} not found -- is {root} an omnibenchmark run?")
+    manifest = json.loads(meta.read_text())
     modules = read_modules(root / ".metadata")
 
     jobs = [(str(root), d) for d in node_dirs(root)]
@@ -217,16 +220,19 @@ def collect(root: Path, processes: int | None = None) -> pl.DataFrame:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("out_dir", type=Path, help="an omnibenchmark out/ folder")
-    ap.add_argument("-o", "--output", type=Path,
-                    help="target parquet (default: metrics_{run_key}.parquet)")
+    ap.add_argument("run_dir", type=Path, help="an omnibenchmark out/ folder")
+    ap.add_argument("-o", "--out", type=Path, default=Path("."),
+                    help="directory to write into, created if missing "
+                         "(default: the current one). Files are always named "
+                         "metrics_{run_key}.parquet, so several runs can share it")
     ap.add_argument("-j", "--processes", type=int, default=None)
     ap.add_argument("--csv", action="store_true",
                     help="also write a sibling .csv, for eyeballing in a spreadsheet")
     args = ap.parse_args()
 
-    df = collect(args.out_dir, args.processes)
-    dest = args.output or Path(f"metrics_{df['run_key'][0]}.parquet")
+    df = collect(args.run_dir, args.processes)
+    args.out.mkdir(parents=True, exist_ok=True)
+    dest = args.out / f"metrics_{df['run_key'][0]}.parquet"
     df.write_parquet(dest, compression="zstd")
     written = [dest]
     if args.csv:

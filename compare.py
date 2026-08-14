@@ -34,15 +34,20 @@ def load(paths: list[Path]) -> pl.DataFrame:
     return pl.concat([pl.read_parquet(p) for p in paths], how="diagonal")
 
 
-def disagreements(df: pl.DataFrame, columns: list[str]) -> pl.DataFrame:
+def disagreements(df: pl.DataFrame, columns: list[str],
+                  tolerance: float = 0.0) -> pl.DataFrame:
     """(node, column) pairs whose value is not the same in every run holding it.
 
-    Values are compared as text: determinism is exact equality, and it keeps
-    string and numeric columns in one pass.
+    Values are first compared as text -- that catches string columns too, and
+    exact equality is the common case. Numeric columns then get a second look:
+    a spread within `tolerance`, taken relative to the larger magnitude but
+    with a floor of 1, is not a disagreement. So the same tolerance is sensible
+    for an ARI near 0.8 and a calinski_harabasz near 300. Pass 0 to demand
+    exact equality.
     """
     if not columns:
         return pl.DataFrame(schema={"node": pl.String, "column": pl.String})
-    return (
+    diff = (
         df.select("node", "run_key", pl.col(columns).cast(pl.String))
         .unpivot(index=["node", "run_key"], variable_name="column",
                  value_name="value")
@@ -50,6 +55,16 @@ def disagreements(df: pl.DataFrame, columns: list[str]) -> pl.DataFrame:
         .group_by("node", "column")
         .agg(values=pl.col("value").unique(), runs=pl.len())
         .filter(pl.col("values").list.len() > 1)
+    )
+    # Non-numeric values cast to null, leaving `spread` null, so they stay
+    # disagreements no matter the tolerance -- text has no near-enough.
+    numbers = pl.col("values").list.eval(pl.element().cast(pl.Float64, strict=False))
+    scale = pl.max_horizontal(pl.lit(1.0), numbers.list.max().abs(),
+                              numbers.list.min().abs())
+    return (
+        diff.with_columns(spread=numbers.list.max() - numbers.list.min())
+        .filter(pl.col("spread").is_null()
+                | (pl.col("spread") > tolerance * scale))
         .sort("node", "column")
     )
 
@@ -60,6 +75,10 @@ def main() -> None:
     ap.add_argument("parquets", nargs="+", type=Path, help="two or more metric tables")
     ap.add_argument("--show", type=int, default=20,
                     help="max differing rows to print (default 20)")
+    ap.add_argument("-t", "--tolerance", type=float, default=1e-5,
+                    help="numeric spread treated as agreement, relative to the "
+                         "larger magnitude with a floor of 1 (default 1e-5). "
+                         "Use 0 to demand bit-exact equality")
     args = ap.parse_args()
 
     df = load(args.parquets)
@@ -79,8 +98,10 @@ def main() -> None:
     outcomes = [c for c in df.columns
                 if c not in PROVENANCE and not c.startswith("perf_")]
     diff = disagreements(df.filter(pl.col("node").is_in(
-        seen.filter(pl.col("runs") > 1)["node"].implode())), outcomes)
+        seen.filter(pl.col("runs") > 1)["node"].implode())), outcomes,
+        args.tolerance)
 
+    # The control stays exact: any movement at all means the jobs really ran.
     moved = disagreements(df, [c for c in df.columns if c.startswith("perf_")])
     if moved.is_empty():
         print("\nWARNING: no runtime differs between these runs -- they most "
@@ -89,10 +110,11 @@ def main() -> None:
     else:
         print(f"\nruntime moved on {moved.height} (node, counter) pairs, as expected")
 
+    within = "identical" if args.tolerance == 0 else f"within {args.tolerance:g}"
     if diff.is_empty():
-        print(f"identical: every outcome agrees across {n_runs} runs")
+        print(f"{within}: every outcome agrees across {n_runs} runs")
         return
-    print(f"\n{diff.height} disagreement(s):")
+    print(f"\n{diff.height} disagreement(s) beyond {args.tolerance:g}:")
     with pl.Config(tbl_rows=args.show, fmt_str_lengths=60, tbl_cols=4):
         print(diff)
     sys.exit(1)

@@ -5,9 +5,20 @@ archiving and posterior analysis.
 
 ```sh
 ./collect.py ../split-stages-plan/out
-# metrics_c707a622.parquet: 694 rows, 54 nodes, run 488eeafd-9a6b-...
+# metrics_c707a622.parquet: 54 nodes, 71 columns, run 488eeafd-9a6b-...
 
-./collect.py ../split-stages-plan/out --csv   # also drops a sibling .csv for Excel
+./collect.py ../split-stages-plan/out --csv          # also a sibling .csv, for Excel
+./collect.py ../split-stages-plan/out -o results/    # write into a folder
+```
+
+`--out` (`-o`) names a **directory**, created if missing, defaulting to the
+current one. The file is always `metrics_{run_key}.parquet`, so several runs
+can collect into one folder without colliding — which is what `compare.py`
+wants:
+
+```sh
+for d in out out_2 out_3; do ./collect.py ../split-stages-plan/$d -o results/; done
+./compare.py results/*.parquet
 ```
 
 Dependencies declared as a uv script preamble, so there is no env to set up.
@@ -60,8 +71,17 @@ where ARI lives.
 ## Comparing runs
 
 ```sh
-./compare.py metrics_*.parquet     # exit 1 if any outcome differs
+./compare.py data/*.parquet            # exit 1 if any outcome differs
+./compare.py data/*.parquet -t 0       # demand bit-exact equality
+./compare.py data/*.parquet -t 1e-3    # looser
 ```
+
+`--tolerance` (`-t`, default `1e-5`) is the numeric spread treated as
+agreement, taken relative to the larger magnitude with a floor of 1 — so one
+number works for an ARI near 0.8 and a `calinski_harabasz` near 300. Text
+columns are always exact; a solver name has no near-enough. It matters: two
+full runs of the be1 slice agree to 1e-5 but not bit-exactly, drifting ~3e-11
+on `calinski_harabasz` and ~9e-14 on `silhouette`.
 
 Runs are merged with a diagonal concat, so tables with different columns (a
 newer collector, a run missing a stage) line up with nulls. Nodes match on the

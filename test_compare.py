@@ -36,6 +36,31 @@ def test_metric_drift_is_caught():
     assert sorted(diff["values"][0]) == ["0.839", "0.842"]
 
 
+def test_tolerance_absorbs_float_noise():
+    df = pl.concat([run("a", 0.8390000, 1.0), run("b", 0.8390004, 2.0)], how="diagonal")
+    assert disagreements(df, ["ARI"], tolerance=1e-5).is_empty()
+    assert disagreements(df, ["ARI"], tolerance=0.0).height == 1  # exact still sees it
+
+
+def test_tolerance_is_relative_for_large_values():
+    # same 1e-6 relative wobble on a big metric must also pass
+    big = "calinski_harabasz"
+    df = pl.concat([run("a", 0.839, 1.0, {big: 308.444527}),
+                    run("b", 0.839, 2.0, {big: 308.444837})], how="diagonal")
+    assert disagreements(df, [big], tolerance=1e-5).is_empty()
+    assert disagreements(df, [big], tolerance=1e-9).height == 1
+
+
+def test_tolerance_never_excuses_a_real_change():
+    df = pl.concat([run("a", 0.839, 1.0), run("b", 0.842, 2.0)], how="diagonal")
+    assert disagreements(df, ["ARI"], tolerance=1e-5).height == 1
+    # nor does it apply to text -- no near-enough for a solver name
+    df = pl.concat([run("a", 0.839, 1.0),
+                    run("b", 0.839, 2.0, {"PCA_solver": "randomized"})],
+                   how="diagonal")
+    assert disagreements(df, ["PCA_solver"], tolerance=1.0).height == 1
+
+
 def test_column_missing_from_one_run():
     # an older run lacking a column must not read as a disagreement
     df = pl.concat([run("a", 0.839, 1.0),
@@ -54,6 +79,9 @@ if __name__ == "__main__":
     import tempfile
 
     test_identical_runs()
+    test_tolerance_absorbs_float_noise()
+    test_tolerance_is_relative_for_large_values()
+    test_tolerance_never_excuses_a_real_change()
     test_metric_drift_is_caught()
     test_column_missing_from_one_run()
     with tempfile.TemporaryDirectory() as d:
