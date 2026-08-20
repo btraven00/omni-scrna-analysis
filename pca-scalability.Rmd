@@ -10,10 +10,6 @@ Wall time against cell count, from one `collect.py` parquet.
     ./collect.py ../split-stages-plan/out_run
     Rscript -e 'rmarkdown::render("pca-scalability.Rmd", params = list(pq = "metrics_d327c077.parquet"))'
 
-With `pq` left empty it falls back to the only `metrics_*.parquet` in the
-working directory, and refuses to guess when there is more than one -- picking
-an arbitrary run silently is how you plot last week's numbers by accident.
-
 ```{r setup, message = FALSE}
 library(ggplot2)
 pq <- params$pq
