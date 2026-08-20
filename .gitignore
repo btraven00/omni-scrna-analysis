@@ -2,3 +2,8 @@ data/
 __pycache__/
 *.swp
 *.swo
+
+# run artefacts: collect.py output and rendered reports
+metrics_*.parquet
+metrics_*.csv
+*.html

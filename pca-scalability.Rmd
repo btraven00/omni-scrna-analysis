@@ -1,0 +1,67 @@
+---
+title: "Scalability"
+output: html_document
+params:
+  pq: ""
+---
+
+Wall time against cell count, from one `collect.py` parquet.
+
+    ./collect.py ../split-stages-plan/out_run
+    Rscript -e 'rmarkdown::render("pca-scalability.Rmd", params = list(pq = "metrics_d327c077.parquet"))'
+
+With `pq` left empty it falls back to the only `metrics_*.parquet` in the
+working directory, and refuses to guess when there is more than one -- picking
+an arbitrary run silently is how you plot last week's numbers by accident.
+
+```{r setup, message = FALSE}
+library(ggplot2)
+pq <- params$pq
+if (!nzchar(pq)) {
+  found <- Sys.glob("metrics_*.parquet")
+  if (length(found) != 1L)
+    stop(sprintf("pass params = list(pq = ...): %d metrics_*.parquet here", length(found)))
+  pq <- found
+}
+d <- nanoparquet::read_parquet(pq)
+# rung id -> cells: tenx-0020k -> 20000
+d$cells <- as.integer(sub(".*?(\\d+)k.*", "\\1", d$DATA_method)) * 1000
+
+# One series per *configuration*, not per module. A module that sweeps a
+# parameter has several rows at the same x -- pc-rapids and pc-biocsingular each
+# run two solvers -- and colouring by `method` alone joins them into one
+# sawtooth line instead of two curves.
+#
+# DATA is the other way round: this benchmark gives every ladder rung its own
+# module id, so `method` there is the dataset, not a method. All six are one
+# loader, so label them by the repo.
+#
+# ponytail: `PCA_solver` is the only sweep in this benchmark. Add the column
+# here if another stage grows one, or key off `param_hash` if it gets tedious.
+d$series <- ifelse(d$stage == "DATA", basename(d$repo),
+                   ifelse(is.na(d$PCA_solver), d$method,
+                          paste(d$method, d$PCA_solver, sep = ":")))
+sc <- list(scale_x_log10(), scale_y_log10(), labs(x = "cells", y = "wall time (s)"))
+```
+
+## Per stage
+
+```{r stages, fig.width = 9, fig.height = 5}
+ggplot(d, aes(cells, perf_s, colour = series)) +
+  geom_point() + geom_line() + facet_wrap(~ stage) + sc
+```
+
+## Peak RSS per stage
+
+```{r stages_rss, fig.width = 9, fig.height = 5}
+ggplot(d, aes(cells, perf_max_rss, colour = series)) +
+  geom_point() + geom_line() + facet_wrap(~ stage) + sc + labs(y = "peak RSS (MB)")
+```
+
+## PCA methods
+
+```{r pca, fig.width = 7, fig.height = 4.5}
+p <- subset(d, stage == "PCA")
+ggplot(p, aes(cells, perf_s, colour = series)) +
+  geom_point() + geom_line() + sc + labs(colour = "method")
+```

@@ -7,7 +7,7 @@ archiving and posterior analysis.
 ./collect.py ../split-stages-plan/out
 # metrics_c707a622.parquet: 54 nodes, 71 columns, run 488eeafd-9a6b-...
 
-./collect.py ../split-stages-plan/out --csv          # also a sibling .csv, for Excel
+./collect.py ../split-stages-plan/out --csv          # also as a .csv
 ./collect.py ../split-stages-plan/out -o results/    # write into a folder
 ```
 
@@ -68,7 +68,7 @@ very sensitive to it. Counting the distinct labels in the CLUST node's
 where ARI lives.
 
 
-## Comparing runs
+## Comparing determinism across runs
 
 ```sh
 ./compare.py data/*.parquet            # exit 1 if any outcome differs
