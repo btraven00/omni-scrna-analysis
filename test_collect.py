@@ -73,6 +73,9 @@ def build(root: Path) -> None:
     clust = pca / "CLUST" / "cl-scrapper" / ".6a558c16"
     clust.mkdir(parents=True)
     (clust / "performance.txt").write_text(PERF)  # older runs omit the stem
+    # both collision cases at once: a module declaring `method` (cl-rapids does)
+    # and one declaring `n_clusters` (sc3s does), against 3 observed clusters
+    (clust / "parameters.json").write_text('{"method": "rapids-leiden", "n_clusters": 8}')
     (clust / "be1_clusters.tsv").write_text(
         "cell_id\tcluster\na\t1\nb\t2\nc\t2\nd\t3\n")  # 3 distinct clusters
     cm = clust / "CLUST-M" / "cl-metrics-r" / ".default"
@@ -138,17 +141,25 @@ def test_collect(tmp_path):
     assert rows["PCA"]["perf_io_in"] is None
 
     # lineage: the metric row carries the PCA solver that produced it
-    assert rows["EMBED-M"]["PCA_method"] == "pc-scanpy"
+    assert rows["EMBED-M"]["PCA_module"] == "pc-scanpy"
     assert rows["EMBED-M"]["PCA_solver"] == "arpack"
     assert rows["EMBED-M"]["PCA_n_components"] == 50
     assert rows["DATA"]["PCA_solver"] is None
 
     # k found is derived from clusters.tsv, and rides the lineage down to the
     # CLUST-M row where ARI lives -- n_labels there is the truth count, not k
-    assert rows["CLUST"]["CLUST_n_clusters"] == 3
-    assert rows["CLUST-M"]["CLUST_n_clusters"] == 3
+    assert rows["CLUST"]["CLUST_observed_n_clusters"] == 3
+    assert rows["CLUST-M"]["CLUST_observed_n_clusters"] == 3
     assert rows["CLUST-M"]["n_labels"] == 8
-    assert rows["PCA"]["CLUST_n_clusters"] is None
+    assert rows["PCA"]["CLUST_observed_n_clusters"] is None
+
+    # identity, declared parameters and derived facts must not overwrite each
+    # other: all three survive a module that declares `method` and `n_clusters`
+    for r in ("CLUST", "CLUST-M"):
+        assert rows[r]["CLUST_module"] == "cl-scrapper"        # identity
+        assert rows[r]["CLUST_method"] == "rapids-leiden"      # declared
+        assert rows[r]["CLUST_n_clusters"] == 8                # declared, not 3
+        assert rows[r]["CLUST_observed_n_clusters"] == 3       # derived
 
     # commits resolve for every module, from either metadata file
     assert df["commit"].null_count() == 0

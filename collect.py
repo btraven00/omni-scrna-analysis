@@ -14,8 +14,10 @@ parameters, its metrics, and its snakemake resource counters.
 Stage ids ending in `-M` are metric stages (EMBED-M, GRAPH-M, CLUST-M); the
 rest are methods. A metric node scores the method directly above it, named in
 `evaluates` / `evaluates_method`. Every node also carries its whole lineage as
-`{STAGE}_method` and `{STAGE}_{param}` columns, so a row is self-describing:
+`{STAGE}_module` and `{STAGE}_{param}` columns, so a row is self-describing:
 the EMBED-M row holding a silhouette also holds the PCA solver that earned it.
+Identity, declared parameters and derived facts get separate prefixes, so a
+module is free to declare a parameter called `method` or `n_clusters`.
 """
 
 import argparse
@@ -123,9 +125,14 @@ def node_row(job: tuple[str, str]) -> dict | None:
     lineage = {}
     for depth, (s, m, _) in enumerate(chain, start=1):
         ancestor = Path(root).joinpath(*rel.parts[:depth * 3])
-        lineage[f"{s}_method"] = m
-        facts = read_params(ancestor) | count_clusters(ancestor)
-        lineage |= {f"{s}_{k}": v for k, v in facts.items()}
+        # Three separate namespaces. Sharing one silently loses data whenever a
+        # module declares a parameter named like the identity or a derived fact:
+        # cl-rapids declares `method: rapids-leiden`, which used to overwrite its
+        # own module id, and sc3s declares `n_clusters`, which used to be
+        # replaced by the observed count that happened to equal it.
+        lineage[f"{s}_module"] = m
+        lineage |= {f"{s}_{k}": v for k, v in read_params(ancestor).items()}
+        lineage |= {f"{s}_observed_{k}": v for k, v in count_clusters(ancestor).items()}
 
     # Metric stages carry a `-M` suffix (EMBED-M, GRAPH-M, CLUST-M) and score
     # the method stage directly above them. Runs that don't follow the
